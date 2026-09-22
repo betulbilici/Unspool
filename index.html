@@ -819,6 +819,208 @@
       }
     }
 
+    // --- Milestone 4: Dynamic Yarn Ball Mechanic & Wool Thread System ---
+    class YarnBall {
+      constructor(startX, startY) {
+        this.maxRadius = 30;
+        this.minRadius = 12;
+        this.currentRadius = this.maxRadius;
+        this.lastX = startX;
+        this.lastY = startY;
+        this.threadPoints = [];
+        this.lastThreadDropDist = 0;
+        this.unspoolRate = 0.0075; // radius shrink per pixel rolled
+
+        // Create dynamic circle body in Matter.js
+        this.body = Bodies.circle(startX, startY, this.maxRadius, {
+          restitution: 0.3,
+          friction: 0.75,
+          frictionStatic: 0.9,
+          density: 0.003, // Heavier when large
+          label: 'yarn'
+        });
+
+        Composite.add(world, this.body);
+      }
+
+      reset(x, y, radius = 30) {
+        Body.setPosition(this.body, { x, y });
+        Body.setVelocity(this.body, { x: 0, y: 0 });
+        Body.setAngularVelocity(this.body, 0);
+        Body.setAngle(this.body, 0);
+
+        // Reset scale
+        const scaleFactor = radius / this.currentRadius;
+        Body.scale(this.body, scaleFactor, scaleFactor);
+        this.currentRadius = radius;
+        this.lastX = x;
+        this.lastY = y;
+        this.threadPoints = [];
+        this.lastThreadDropDist = 0;
+      }
+
+      restoreFull() {
+        if (this.currentRadius < this.maxRadius) {
+          const scaleFactor = this.maxRadius / this.currentRadius;
+          Body.scale(this.body, scaleFactor, scaleFactor);
+          this.currentRadius = this.maxRadius;
+          sound.playSpoolPickup();
+        }
+      }
+
+      update(delta) {
+        const x = this.body.position.x;
+        const y = this.body.position.y;
+        const dx = x - this.lastX;
+        const dy = y - this.lastY;
+        const dist = Math.hypot(dx, dy);
+
+        const speed = Math.hypot(this.body.velocity.x, this.body.velocity.y);
+        const rollingSpeed = Math.abs(this.body.angularVelocity) * this.currentRadius;
+
+        // Sound update for rolling
+        sound.updateRollingSound(speed + rollingSpeed);
+
+        // Unspooling: Shrink radius when rolling along surfaces
+        if (dist > 0.5 && this.currentRadius > this.minRadius) {
+          const shrinkAmount = dist * this.unspoolRate;
+          const targetRadius = Math.max(this.minRadius, this.currentRadius - shrinkAmount);
+
+          if (targetRadius !== this.currentRadius) {
+            const scale = targetRadius / this.currentRadius;
+            Body.scale(this.body, scale, scale);
+            this.currentRadius = targetRadius;
+          }
+        }
+
+        // Thread Trail on ground: record trail point every 14px
+        this.lastThreadDropDist += dist;
+        if (this.lastThreadDropDist > 14) {
+          this.lastThreadDropDist = 0;
+          // Drop thread point at bottom of yarn ball
+          const groundY = y + this.currentRadius;
+          this.threadPoints.push({ x, y: groundY });
+          // Keep thread trail optimized
+          if (this.threadPoints.length > 250) {
+            this.threadPoints.shift();
+          }
+        }
+
+        this.lastX = x;
+        this.lastY = y;
+
+        // Update HUD Yarn Gauge
+        const yarnPct = Math.round(((this.currentRadius - this.minRadius) / (this.maxRadius - this.minRadius)) * 100);
+        document.getElementById('yarn-bar-fill').style.width = `${yarnPct}%`;
+        document.getElementById('yarn-percent').textContent = `${yarnPct}%`;
+      }
+
+      render(ctx) {
+        const x = this.body.position.x;
+        const y = this.body.position.y;
+        const angle = this.body.angle;
+        const r = this.currentRadius;
+
+        // 1. Render Unwound Thread Trail on Floor / Platforms
+        if (this.threadPoints.length > 1) {
+          ctx.save();
+          ctx.strokeStyle = '#ff6b8b';
+          ctx.lineWidth = 2.5;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.shadowColor = 'rgba(255, 107, 139, 0.4)';
+          ctx.shadowBlur = 4;
+
+          ctx.beginPath();
+          ctx.moveTo(this.threadPoints[0].x, this.threadPoints[0].y);
+          for (let i = 1; i < this.threadPoints.length; i++) {
+            const p = this.threadPoints[i];
+            ctx.lineTo(p.x, p.y);
+          }
+          // Connect last trail point to bottom edge of yarn ball
+          ctx.lineTo(x, y + r - 2);
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        // 2. Yarn Ball Shadow
+        ctx.save();
+        ctx.fillStyle = 'rgba(15, 10, 20, 0.4)';
+        ctx.beginPath();
+        ctx.ellipse(x, y + r - 1, r * 0.9, r * 0.25, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // 3. Dynamic Yarn Ball Procedural Woven Sphere
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(angle);
+
+        // Outer soft yarn fluff / fuzzies around perimeter
+        ctx.strokeStyle = '#ffaec9';
+        ctx.lineWidth = 1.2;
+        const fuzzCount = 14;
+        for (let i = 0; i < fuzzCount; i++) {
+          const theta = (i / fuzzCount) * Math.PI * 2;
+          const fx1 = Math.cos(theta) * (r - 2);
+          const fy1 = Math.sin(theta) * (r - 2);
+          const fx2 = Math.cos(theta) * (r + 3.5);
+          const fy2 = Math.sin(theta) * (r + 3.5);
+          ctx.beginPath();
+          ctx.moveTo(fx1, fy1);
+          ctx.lineTo(fx2, fy2);
+          ctx.stroke();
+        }
+
+        // Base sphere gradient
+        const sphereGrad = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
+        sphereGrad.addColorStop(0, '#ff8fa3');
+        sphereGrad.addColorStop(0.65, '#ff4d6d');
+        sphereGrad.addColorStop(1, '#c9184a');
+
+        ctx.fillStyle = sphereGrad;
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Woven Thread Strands / Swirls
+        ctx.strokeStyle = '#ff758f';
+        ctx.lineWidth = Math.max(1.8, r * 0.09);
+        ctx.lineCap = 'round';
+
+        // Set 1: Spiral curved ribs
+        for (let rad = r * 0.25; rad < r * 0.95; rad += r * 0.24) {
+          ctx.beginPath();
+          ctx.arc(0, 0, rad, -0.6, 2.2);
+          ctx.stroke();
+        }
+
+        // Set 2: Cross-woven wound bands
+        ctx.strokeStyle = '#c9184a';
+        ctx.lineWidth = Math.max(1.5, r * 0.07);
+        for (let rad = r * 0.35; rad < r * 0.9; rad += r * 0.26) {
+          ctx.beginPath();
+          ctx.arc(r * 0.15, -r * 0.1, rad, 1.2, 4.0);
+          ctx.stroke();
+        }
+
+        // Specular highlight on top curve
+        ctx.strokeStyle = 'rgba(255, 230, 240, 0.65)';
+        ctx.lineWidth = Math.max(1.5, r * 0.08);
+        ctx.beginPath();
+        ctx.arc(-r * 0.2, -r * 0.2, r * 0.45, -1.8, -0.2);
+        ctx.stroke();
+
+        // Center cute wrap-band knot
+        ctx.fillStyle = '#a4133c';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, r * 0.28, r * 0.14, 0.4, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+      }
+    }
+
     // Milestone 1 & 2 Engine setup
     const CanvasWidth = 960;
     const CanvasHeight = 540;
