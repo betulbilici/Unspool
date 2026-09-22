@@ -1809,6 +1809,9 @@
     const ceiling = Bodies.rectangle(CanvasWidth / 2, -15, CanvasWidth, 30, wallOptions);
     Composite.add(world, [ground, leftWall, rightWall, ceiling]);
 
+    // Connection wire linking a switch to its controlled door
+    let mechanismWires = [];
+
     // Level Manager
     class LevelManager {
       static clearLevel() {
@@ -1830,6 +1833,7 @@
         doors = [];
         movingPlatforms = [];
         staticPlatforms = [];
+        mechanismWires = [];
         isStageComplete = false;
 
         // Hide victory modal
@@ -1857,102 +1861,139 @@
 
         if (stageNum === 1) {
           // --- STAGE 1: LIVING ROOM FLOOR ---
+          // Concept: Yarn ball is rolled into floor switch to lock down the sofa ramp.
           levelTitle.innerHTML = `<span style="color: var(--accent-warm);">STAGE 1:</span> Living Room Floor`;
 
           // Player & Yarn setup
-          pati = new PatiController(100, CanvasHeight - 45);
-          yarn = new YarnBall(220, CanvasHeight - 55);
+          pati = new PatiController(90, CanvasHeight - 45);
+          yarn = new YarnBall(200, CanvasHeight - 55);
 
-          // Pressure plate switch in middle floor
-          const plate = new PressurePlate(440, CanvasHeight - 34, 70, 21, (active) => {
+          // Pressure plate switch in middle floor depression
+          const plate = new PressurePlate(430, CanvasHeight - 34, 70, 20, (active) => {
             ramp.setOpen(active);
           });
           pressurePlates.push(plate);
 
-          // Lowering/raising ramp leading to sofa
-          const ramp = new MechanicalDoor(640, CanvasHeight - 45, 140, 16, -65, true);
+          // Lowering/raising hinged wooden ramp leading to sofa
+          const ramp = new MechanicalDoor(630, CanvasHeight - 42, 150, 16, -70, true);
           doors.push(ramp);
+
+          // Connecting wire from plate to ramp
+          mechanismWires.push({
+            plate: plate,
+            points: [
+              { x: 430, y: CanvasHeight - 30 },
+              { x: 555, y: CanvasHeight - 30 }
+            ]
+          });
 
           // Cozy Sofa Platform
           this.addStaticPlatform(845, CanvasHeight - 90, 210, 120, 'sofa', '#9e2a2b');
           // Sofa armrest
-          this.addStaticPlatform(750, CanvasHeight - 110, 30, 80, 'sofa', '#801a24');
+          this.addStaticPlatform(745, CanvasHeight - 110, 26, 80, 'sofa', '#801a24');
 
           // Cat Bed on sofa
           catBed = new CatBedGoal(855, CanvasHeight - 170, 68, 38);
 
         } else if (stageNum === 2) {
           // --- STAGE 2: BOOKSHELF ASCENT ---
+          // Concept: Roll & shrink yarn through low tunnel to trigger the bookshelf elevator.
+          // Pati then climbs using the lowered stairs and springboard.
           levelTitle.innerHTML = `<span style="color: var(--accent-warm);">STAGE 2:</span> Bookshelf Ascent`;
 
           // Player & Yarn setup
           pati = new PatiController(80, CanvasHeight - 45);
-          yarn = new YarnBall(170, CanvasHeight - 55);
+          yarn = new YarnBall(180, CanvasHeight - 55);
 
-          // Low-clearance tunnel ceiling: height 36px clearance from ground
-          // A 30px radius yarn ball (60px diameter) cannot pass until rolled and shrunk to radius <= 16px!
-          this.addStaticPlatform(310, CanvasHeight - 68, 200, 26, 'bookshelf', '#4a2818');
-          // Tunnel left guide pillar
-          this.addStaticPlatform(210, CanvasHeight - 88, 16, 64, 'bookshelf', '#381e12');
+          // Low-clearance Bookshelf Tunnel (clearance 36px):
+          // Yarn ball must be rolled back and forth to shrink to <= 16px to fit into tunnel!
+          this.addStaticPlatform(310, CanvasHeight - 66, 210, 24, 'bookshelf', '#4a2818');
+          this.addStaticPlatform(205, CanvasHeight - 85, 16, 60, 'bookshelf', '#381e12');
 
-          // Springboard 1 (at tunnel exit): launches small yarn ball up to middle shelf
-          const ballSpring = new Springboard(455, CanvasHeight - 36, 44, -14.6);
-          springboards.push(ballSpring);
+          // Plate at the end of the tunnel: when shrunk ball rolls through and rests on plate,
+          // it lowers the Bookshelf Elevator / Step platform down!
+          const tunnelPlate = new PressurePlate(440, CanvasHeight - 34, 56, 12, (active) => {
+            elevator.setOpen(active);
+          });
+          pressurePlates.push(tunnelPlate);
 
-          // Springboard 2 (for Pati): to leap onto lower book shelf
-          const patiSpring = new Springboard(140, CanvasHeight - 36, 44, -12.4);
+          // Moving Bookshelf Elevator / Step Platform
+          // Origin is high up (CanvasHeight - 220); when open, it lowers down by +110px!
+          const elevator = new MechanicalDoor(580, CanvasHeight - 220, 130, 18, 110, false);
+          doors.push(elevator);
+
+          // Connecting wire from tunnel plate to elevator
+          mechanismWires.push({
+            plate: tunnelPlate,
+            points: [
+              { x: 440, y: CanvasHeight - 30 },
+              { x: 500, y: CanvasHeight - 30 },
+              { x: 500, y: CanvasHeight - 160 },
+              { x: 580, y: CanvasHeight - 160 }
+            ]
+          });
+
+          // Springboard for Pati to hop up onto intermediate book steps
+          const patiSpring = new Springboard(140, CanvasHeight - 36, 46, -11.5);
           springboards.push(patiSpring);
 
-          // Middle step books
-          this.addStaticPlatform(270, CanvasHeight - 165, 80, 20, 'book', '#3a5a40');
-          this.addStaticPlatform(400, CanvasHeight - 230, 90, 20, 'book', '#a37081');
+          // Book steps for Pati
+          this.addStaticPlatform(260, CanvasHeight - 150, 75, 20, 'book', '#2d6a4f');
+          this.addStaticPlatform(390, CanvasHeight - 200, 85, 20, 'book', '#b56576');
 
-          // Middle Bookshelf Ledge where launched yarn ball lands
-          this.addStaticPlatform(630, CanvasHeight - 210, 230, 20, 'bookshelf', '#4a2818');
+          // High Bookshelf Top Ledge with Cat Bed
+          this.addStaticPlatform(820, CanvasHeight - 320, 200, 20, 'bookshelf', '#4a2818');
 
-          // Checkpoint Yarn Spool on middle ledge to restore yarn size
-          const spool = new YarnSpool(560, CanvasHeight - 270);
-          yarnSpools.push(spool);
-
-          // High Bookshelf Top Ledge
-          this.addStaticPlatform(830, CanvasHeight - 350, 190, 20, 'bookshelf', '#4a2818');
-
-          // Goal Cat Bed on top shelf
-          catBed = new CatBedGoal(845, CanvasHeight - 380, 66, 36);
+          // Cat Bed on the high shelf
+          catBed = new CatBedGoal(835, CanvasHeight - 350, 68, 38);
 
         } else if (stageNum === 3) {
           // --- STAGE 3: NIGHTSTAND CLIMAX ---
+          // Concept: Yarn ball is placed on the lower desk plate to unlock the moving book clockwork.
+          // Pati navigates the moving book platforms to reach the nightstand bed.
           levelTitle.innerHTML = `<span style="color: var(--accent-warm);">STAGE 3:</span> Nightstand Climax`;
 
           // Player & Yarn setup
           pati = new PatiController(80, CanvasHeight - 45);
-          yarn = new YarnBall(160, CanvasHeight - 55);
+          yarn = new YarnBall(190, CanvasHeight - 55);
 
-          // Starting perch
-          this.addStaticPlatform(120, CanvasHeight - 90, 150, 110, 'wood', '#4a3525');
+          // Lower Desk Platform where yarn ball puzzle is solved
+          this.addStaticPlatform(300, CanvasHeight - 35, 180, 20, 'wood', '#4a3525');
+          const deskPlate = new PressurePlate(300, CanvasHeight - 48, 64, 18, (active) => {
+            goldGate.setOpen(active);
+          });
+          pressurePlates.push(deskPlate);
+
+          // Springboard to boost Pati up to the moving platform route
+          const deskSpring = new Springboard(110, CanvasHeight - 36, 44, -13.0);
+          springboards.push(deskSpring);
 
           // Moving book platform 1
-          const book1 = new MovingPlatform(240, 390, CanvasHeight - 150, 95, 20, 1.3, '#1d3557');
+          const book1 = new MovingPlatform(230, 390, CanvasHeight - 180, 95, 20, 1.3, '#1d3557');
           movingPlatforms.push(book1);
 
           // Mid perch with Yarn Spool
-          this.addStaticPlatform(450, CanvasHeight - 210, 80, 20, 'wood', '#582f0e');
-          const midSpool = new YarnSpool(450, CanvasHeight - 265);
+          this.addStaticPlatform(450, CanvasHeight - 230, 80, 20, 'wood', '#582f0e');
+          const midSpool = new YarnSpool(450, CanvasHeight - 280);
           yarnSpools.push(midSpool);
 
           // Moving book platform 2
-          const book2 = new MovingPlatform(520, 670, CanvasHeight - 275, 95, 20, 1.4, '#8338ec');
+          const book2 = new MovingPlatform(520, 680, CanvasHeight - 290, 95, 20, 1.4, '#8338ec');
           movingPlatforms.push(book2);
 
-          // Final Lock Switch Ledge
-          this.addStaticPlatform(730, CanvasHeight - 330, 110, 20, 'wood', '#4a3525');
-          const heavySwitch = new PressurePlate(730, CanvasHeight - 343, 60, 20, (active) => {
-            goldGate.setOpen(active);
+          // Connecting wire from desk plate to gold gate
+          mechanismWires.push({
+            plate: deskPlate,
+            points: [
+              { x: 300, y: CanvasHeight - 30 },
+              { x: 740, y: CanvasHeight - 30 },
+              { x: 740, y: CanvasHeight - 330 },
+              { x: 790, y: CanvasHeight - 330 }
+            ]
           });
-          pressurePlates.push(heavySwitch);
 
-          // Gilded Barrier Gate protecting the master cat bed
-          const goldGate = new MechanicalDoor(795, CanvasHeight - 385, 14, 90, -95, false);
+          // Gilded Barrier Gate protecting the nightstand bed
+          const goldGate = new MechanicalDoor(790, CanvasHeight - 380, 14, 90, -95, false);
           doors.push(goldGate);
 
           // Grand Nightstand Top Surface
@@ -2344,6 +2385,28 @@
       // Static Platforms & Furniture
       renderStaticPlatforms();
 
+      // Mechanical Circuit Wires (showing connection between switch and door)
+      for (const wire of mechanismWires) {
+        if (!wire.points || wire.points.length < 2) continue;
+        const isPowered = wire.plate && wire.plate.isPressed;
+        ctx.save();
+        ctx.strokeStyle = isPowered ? '#52b788' : 'rgba(212, 175, 55, 0.4)';
+        ctx.lineWidth = isPowered ? 3 : 2;
+        ctx.setLineDash(isPowered ? [6, 4] : [4, 4]);
+        if (isPowered) {
+          ctx.lineDashOffset = -now * 0.02;
+          ctx.shadowColor = '#52b788';
+          ctx.shadowBlur = 8;
+        }
+        ctx.beginPath();
+        ctx.moveTo(wire.points[0].x, wire.points[0].y);
+        for (let i = 1; i < wire.points.length; i++) {
+          ctx.lineTo(wire.points[i].x, wire.points[i].y);
+        }
+        ctx.stroke();
+        ctx.restore();
+      }
+
       // Mechanical Doors / Ramps
       doors.forEach(d => d.render(ctx));
 
@@ -2356,7 +2419,34 @@
       yarnSpools.forEach(ys => ys.render(ctx));
 
       // Goal Cat Bed
-      if (catBed) catBed.render(ctx);
+      if (catBed) {
+        catBed.render(ctx);
+
+        // Render Objective Marker above Cat Bed
+        if (!catBed.reached) {
+          ctx.save();
+          const arrowBob = Math.sin(now * 0.005) * 4;
+          const bx = catBed.x;
+          const by = catBed.y - 36 + arrowBob;
+
+          // Cute Bed tag
+          ctx.fillStyle = '#ff758f';
+          ctx.font = "bold 11px 'Courier New', monospace";
+          ctx.textAlign = 'center';
+          ctx.shadowColor = 'rgba(255, 117, 143, 0.6)';
+          ctx.shadowBlur = 6;
+          ctx.fillText('NAP BED 💤', bx, by - 6);
+
+          // Arrow pointing down to bed
+          ctx.beginPath();
+          ctx.moveTo(bx, by);
+          ctx.lineTo(bx - 5, by - 6);
+          ctx.lineTo(bx + 5, by - 6);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        }
+      }
 
       // Dynamic Yarn Ball (and its unspooled thread trail)
       if (yarn) yarn.render(ctx);
