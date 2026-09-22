@@ -149,13 +149,34 @@
           </div>
           <span id="yarn-percent">100%</span>
         </div>
-        <button id="sound-btn" class="hud-card hud-btn" style="cursor: pointer; pointer-events: auto;">
-          <span id="sound-icon">🔊</span> <span id="sound-text">SOUND ON</span>
-        </button>
+        <div style="display: flex; gap: 8px;">
+          <button id="meow-btn" class="hud-card hud-btn" style="cursor: pointer; pointer-events: auto; background: #5a2e3a;">
+            <span>🐱</span> <span>MEOW [E]</span>
+          </button>
+          <button id="reset-btn" class="hud-card hud-btn" style="cursor: pointer; pointer-events: auto; background: #3a2e5a;">
+            <span>🔄</span> <span>RESET [R]</span>
+          </button>
+          <button id="sound-btn" class="hud-card hud-btn" style="cursor: pointer; pointer-events: auto;">
+            <span id="sound-icon">🔊</span> <span id="sound-text">SOUND ON</span>
+          </button>
+        </div>
       </div>
       <div class="hud-bottom">
-        <div class="hud-badge">Controls: [A/D] Move | [W/Space] Jump | [M] Mute | [R] Restart</div>
+        <div class="hud-badge">Controls: [A/D] Move | [W/Space] Jump | [E] Meow | [R] Restart | [M] Mute</div>
         <div class="hud-badge" id="fps-badge">60 FPS</div>
+      </div>
+    </div>
+
+    <!-- Victory / Stage Clear Modal Overlay -->
+    <div id="modal-overlay" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(18, 12, 22, 0.85); backdrop-filter: blur(6px); z-index: 50; flex-direction: column; align-items: center; justify-content: center; color: var(--text-light); text-align: center;">
+      <div style="background: #2b1f36; border: 3px solid #ff758f; border-radius: 12px; padding: 28px 36px; max-width: 480px; box-shadow: 0 12px 30px rgba(0,0,0,0.8), 0 0 25px rgba(255, 117, 143, 0.3);">
+        <div id="modal-icon" style="font-size: 52px; margin-bottom: 12px;">🧺💤</div>
+        <h2 id="modal-title" style="font-size: 28px; color: #ff758f; margin-bottom: 8px; text-shadow: 2px 2px 0 #000;">ROOM CLEAR!</h2>
+        <p id="modal-desc" style="color: #fefae0; font-size: 15px; line-height: 1.5; margin-bottom: 20px;">Pati curled up happily into the cozy cat bed!</p>
+        <div style="display: flex; gap: 14px; justify-content: center;">
+          <button id="modal-action-btn" style="background: linear-gradient(135deg, #ff758f, #e76f51); border: none; color: #fff; font-family: inherit; font-size: 16px; font-weight: bold; padding: 12px 24px; border-radius: 6px; cursor: pointer; box-shadow: 0 4px 12px rgba(231, 111, 81, 0.4); transition: transform 0.1s;">NEXT STAGE ▶</button>
+          <button id="modal-retry-btn" style="background: #473355; border: 2px solid #7a5891; color: #fefae0; font-family: inherit; font-size: 16px; font-weight: bold; padding: 12px 20px; border-radius: 6px; cursor: pointer;">RETRY 🔄</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1483,7 +1504,7 @@
       }
     }
 
-    // 5. Sliding Door / Ramp / Barrier mechanism actuated by switches
+    // 5. Sliding Door / Hinged Ramp mechanism actuated by switches
     class MechanicalDoor {
       constructor(x, y, width, height, openOffsetY = -70, isRamp = false) {
         this.originX = x;
@@ -1511,8 +1532,116 @@
         const targetProgress = this.isOpen ? 1 : 0;
         this.progress += (targetProgress - this.progress) * 0.08;
 
-        const currentY = this.originY + this.openOffsetY * this.progress;
-        Body.setPosition(this.body, { x: this.originX, y: currentY });
+        if (this.isRamp) {
+          // Hinged ramp: left edge stays grounded, right edge raises
+          const maxAngle = -0.36; // radians tilt (~20 deg)
+          const angle = maxAngle * this.progress;
+          const currentY = this.originY + (this.openOffsetY * 0.5) * this.progress;
+          const currentX = this.originX - (1 - Math.cos(angle)) * (this.width / 2);
+
+          Body.setPosition(this.body, { x: currentX, y: currentY });
+          Body.setAngle(this.body, angle);
+        } else {
+          // Vertical sliding gate
+          const currentY = this.originY + this.openOffsetY * this.progress;
+          Body.setPosition(this.body, { x: this.originX, y: currentY });
+        }
+      }
+
+      render(ctx) {
+        const x = this.body.position.x;
+        const y = this.body.position.y;
+        const angle = this.body.angle;
+
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(angle);
+
+        if (this.isRamp) {
+          // Polished wooden ramp with traction slats
+          const rampGrad = ctx.createLinearGradient(0, -this.height / 2, 0, this.height / 2);
+          rampGrad.addColorStop(0, '#734e32');
+          rampGrad.addColorStop(1, '#4a301e');
+
+          ctx.fillStyle = rampGrad;
+          ctx.beginPath();
+          ctx.roundRect(-this.width / 2, -this.height / 2, this.width, this.height, 4);
+          ctx.fill();
+
+          ctx.strokeStyle = '#9c6b45';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(-this.width / 2, -this.height / 2, this.width, this.height);
+
+          // Traction wood slats across ramp
+          ctx.strokeStyle = '#3a2012';
+          ctx.lineWidth = 2;
+          for (let sx = -this.width / 2 + 18; sx < this.width / 2 - 10; sx += 22) {
+            ctx.beginPath();
+            ctx.moveTo(sx, -this.height / 2 + 2);
+            ctx.lineTo(sx, this.height / 2 - 2);
+            ctx.stroke();
+          }
+
+          // Left hinge mount indicator
+          ctx.fillStyle = '#d4af37';
+          ctx.beginPath();
+          ctx.arc(-this.width / 2 + 6, 0, 4, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          // Brass / Mahogany mechanical barrier
+          const doorGrad = ctx.createLinearGradient(-this.width / 2, 0, this.width / 2, 0);
+          doorGrad.addColorStop(0, '#4a3525');
+          doorGrad.addColorStop(0.5, '#734e32');
+          doorGrad.addColorStop(1, '#3b281c');
+
+          ctx.fillStyle = doorGrad;
+          ctx.fillRect(-this.width / 2, -this.height / 2, this.width, this.height);
+
+          // Mechanical rivets / brass bars
+          ctx.strokeStyle = '#d4af37';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(-this.width / 2 + 3, -this.height / 2 + 3, this.width - 6, this.height - 6);
+        }
+        ctx.restore();
+      }
+    }
+
+    // 6. Moving Hardcover Book Platform (Stage 3)
+    class MovingPlatform {
+      constructor(x1, x2, y, width = 110, height = 20, speed = 1.2, bookColor = '#2b580c') {
+        this.x1 = x1;
+        this.x2 = x2;
+        this.y = y;
+        this.width = width;
+        this.height = height;
+        this.speed = speed;
+        this.direction = 1;
+        this.bookColor = bookColor;
+
+        // Static platform moved manually via Body.setPosition to prevent falling
+        this.body = Bodies.rectangle((x1 + x2) / 2, y, width, height, {
+          isStatic: true,
+          friction: 0.9,
+          label: 'moving_platform'
+        });
+        Composite.add(world, this.body);
+      }
+
+      update(delta) {
+        let currentX = this.body.position.x;
+        currentX += this.speed * this.direction;
+
+        if (currentX >= this.x2) {
+          currentX = this.x2;
+          this.direction = -1;
+        } else if (currentX <= this.x1) {
+          currentX = this.x1;
+          this.direction = 1;
+        }
+
+        const vx = this.speed * this.direction;
+        Body.setPosition(this.body, { x: currentX, y: this.y });
+        Body.setVelocity(this.body, { x: vx, y: 0 });
       }
 
       render(ctx) {
@@ -1520,33 +1649,25 @@
         const y = this.body.position.y;
 
         ctx.save();
-        if (this.isRamp) {
-          // Wooden ramp style
-          ctx.fillStyle = '#5c3d2e';
-          ctx.fillRect(x - this.width / 2, y - this.height / 2, this.width, this.height);
-          ctx.strokeStyle = '#b85d19';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(x - this.width / 2, y - this.height / 2, this.width, this.height);
-        } else {
-          // Brass / Mahogany mechanical barrier
-          const doorGrad = ctx.createLinearGradient(x - this.width / 2, 0, x + this.width / 2, 0);
-          doorGrad.addColorStop(0, '#4a3525');
-          doorGrad.addColorStop(0.5, '#734e32');
-          doorGrad.addColorStop(1, '#3b281c');
+        // Book cover
+        ctx.fillStyle = this.bookColor;
+        ctx.beginPath();
+        ctx.roundRect(x - this.width / 2, y - this.height / 2, this.width, this.height, 4);
+        ctx.fill();
 
-          ctx.fillStyle = doorGrad;
-          ctx.fillRect(x - this.width / 2, y - this.height / 2, this.width, this.height);
+        // Book pages edge
+        ctx.fillStyle = '#fefae0';
+        ctx.fillRect(x - this.width / 2 + 4, y - this.height / 2 + 3, this.width - 8, this.height - 6);
 
-          // Mechanical rivets / brass bars
-          ctx.strokeStyle = '#d4af37';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(x - this.width / 2 + 3, y - this.height / 2 + 3, this.width - 6, this.height - 6);
-        }
+        // Gold lettering / spine ribs
+        ctx.strokeStyle = '#d4af37';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(x - this.width / 2 + 8, y - this.height / 2 + 2, this.width - 16, this.height - 4);
         ctx.restore();
       }
     }
 
-    // Milestone 1 & 2 Engine setup
+    // --- Milestone 6: Complete 3-Stage Level Design & World Engine ---
     const CanvasWidth = 960;
     const CanvasHeight = 540;
 
@@ -1558,24 +1679,267 @@
 
     // Game Physics Engine
     const engine = Engine.create({
-      gravity: { x: 0, y: 1.2, scale: 0.001 }
+      gravity: { x: 0, y: 1.15, scale: 0.001 }
     });
     const world = engine.world;
 
+    // Ambient Living Room Dust Motes
+    const dustMotes = [];
+    for (let i = 0; i < 35; i++) {
+      dustMotes.push({
+        x: Math.random() * CanvasWidth,
+        y: Math.random() * CanvasHeight,
+        vx: (Math.random() - 0.5) * 0.35,
+        vy: -Math.random() * 0.25 - 0.05,
+        radius: Math.random() * 1.8 + 0.6,
+        alpha: Math.random() * 0.45 + 0.2,
+        phase: Math.random() * Math.PI * 2
+      });
+    }
+
+    function updateAndRenderDust(ctx, delta) {
+      for (const d of dustMotes) {
+        d.x += d.vx;
+        d.y += d.vy;
+        d.phase += delta * 0.002;
+        if (d.y < 0) d.y = CanvasHeight;
+        if (d.x < 0) d.x = CanvasWidth;
+        if (d.x > CanvasWidth) d.x = 0;
+
+        ctx.save();
+        ctx.fillStyle = '#fff4cc';
+        ctx.globalAlpha = d.alpha * (0.6 + Math.sin(d.phase) * 0.4);
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, d.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    // Static platforms & walls list for cleanup
+    let staticPlatforms = [];
+    let pressurePlates = [];
+    let springboards = [];
+    let yarnSpools = [];
+    let movingPlatforms = [];
+    let doors = [];
+    let catBed = null;
+    let pati = null;
+    let yarn = null;
+
+    let currentStage = 1;
+    let isStageComplete = false;
+
     // Setup Boundary Walls
     const wallOptions = { isStatic: true, friction: 0.8, restitution: 0.1 };
-    const ground = Bodies.rectangle(CanvasWidth / 2, CanvasHeight - 20, CanvasWidth, 40, wallOptions);
-    const leftWall = Bodies.rectangle(-10, CanvasHeight / 2, 20, CanvasHeight, wallOptions);
-    const rightWall = Bodies.rectangle(CanvasWidth + 10, CanvasHeight / 2, 20, CanvasHeight, wallOptions);
-    const ceiling = Bodies.rectangle(CanvasWidth / 2, -10, CanvasWidth, 20, wallOptions);
-
+    const ground = Bodies.rectangle(CanvasWidth / 2, CanvasHeight - 15, CanvasWidth, 30, wallOptions);
+    const leftWall = Bodies.rectangle(-15, CanvasHeight / 2, 30, CanvasHeight, wallOptions);
+    const rightWall = Bodies.rectangle(CanvasWidth + 15, CanvasHeight / 2, 30, CanvasHeight, wallOptions);
+    const ceiling = Bodies.rectangle(CanvasWidth / 2, -15, CanvasWidth, 30, wallOptions);
     Composite.add(world, [ground, leftWall, rightWall, ceiling]);
 
-    // Game Loop Variables
-    let lastTime = performance.now();
-    let frameCount = 0;
-    let lastFpsUpdate = performance.now();
-    let currentFps = 60;
+    // Level Manager
+    class LevelManager {
+      static clearLevel() {
+        // Remove entities from physics world
+        if (pati) Composite.remove(world, pati.body);
+        if (yarn) Composite.remove(world, yarn.body);
+        if (catBed) Composite.remove(world, catBed.sensor);
+
+        pressurePlates.forEach(p => Composite.remove(world, p.sensor));
+        springboards.forEach(s => Composite.remove(world, s.sensor));
+        yarnSpools.forEach(ys => Composite.remove(world, ys.sensor));
+        doors.forEach(d => Composite.remove(world, d.body));
+        movingPlatforms.forEach(mp => Composite.remove(world, mp.body));
+        staticPlatforms.forEach(sp => Composite.remove(world, sp.body));
+
+        pressurePlates = [];
+        springboards = [];
+        yarnSpools = [];
+        doors = [];
+        movingPlatforms = [];
+        staticPlatforms = [];
+        isStageComplete = false;
+
+        // Hide victory modal
+        document.getElementById('modal-overlay').style.display = 'none';
+      }
+
+      static addStaticPlatform(x, y, w, h, style = 'wood', color = '#5c3d2e') {
+        const body = Bodies.rectangle(x, y, w, h, {
+          isStatic: true,
+          friction: 0.8,
+          label: 'platform'
+        });
+        Composite.add(world, body);
+        staticPlatforms.push({ body, x, y, w, h, style, color });
+      }
+
+      static loadStage(stageNum) {
+        this.clearLevel();
+        currentStage = stageNum;
+
+        const levelTitle = document.getElementById('level-title');
+
+        if (stageNum === 1) {
+          // --- STAGE 1: LIVING ROOM FLOOR ---
+          levelTitle.innerHTML = `<span style="color: var(--accent-warm);">STAGE 1:</span> Living Room Floor`;
+
+          // Player & Yarn setup
+          pati = new PatiController(100, CanvasHeight - 45);
+          yarn = new YarnBall(220, CanvasHeight - 55);
+
+          // Pressure plate switch in middle floor
+          const plate = new PressurePlate(440, CanvasHeight - 34, 70, 21, (active) => {
+            ramp.setOpen(active);
+          });
+          pressurePlates.push(plate);
+
+          // Lowering/raising ramp leading to sofa
+          const ramp = new MechanicalDoor(640, CanvasHeight - 45, 140, 16, -65, true);
+          doors.push(ramp);
+
+          // Cozy Sofa Platform
+          this.addStaticPlatform(845, CanvasHeight - 90, 210, 120, 'sofa', '#9e2a2b');
+          // Sofa armrest
+          this.addStaticPlatform(750, CanvasHeight - 110, 30, 80, 'sofa', '#801a24');
+
+          // Cat Bed on sofa
+          catBed = new CatBedGoal(855, CanvasHeight - 170, 68, 38);
+
+        } else if (stageNum === 2) {
+          // --- STAGE 2: BOOKSHELF ASCENT ---
+          levelTitle.innerHTML = `<span style="color: var(--accent-warm);">STAGE 2:</span> Bookshelf Ascent`;
+
+          // Player & Yarn setup
+          pati = new PatiController(80, CanvasHeight - 45);
+          yarn = new YarnBall(170, CanvasHeight - 55);
+
+          // Low-clearance tunnel ceiling: height 36px clearance from ground
+          // A 30px radius yarn ball (60px diameter) cannot pass until rolled and shrunk to radius <= 16px!
+          this.addStaticPlatform(310, CanvasHeight - 68, 200, 26, 'bookshelf', '#4a2818');
+          // Tunnel left guide pillar
+          this.addStaticPlatform(210, CanvasHeight - 88, 16, 64, 'bookshelf', '#381e12');
+
+          // Springboard 1 (at tunnel exit): launches small yarn ball up to middle shelf
+          const ballSpring = new Springboard(455, CanvasHeight - 36, 44, -14.6);
+          springboards.push(ballSpring);
+
+          // Springboard 2 (for Pati): to leap onto lower book shelf
+          const patiSpring = new Springboard(140, CanvasHeight - 36, 44, -12.4);
+          springboards.push(patiSpring);
+
+          // Middle step books
+          this.addStaticPlatform(270, CanvasHeight - 165, 80, 20, 'book', '#3a5a40');
+          this.addStaticPlatform(400, CanvasHeight - 230, 90, 20, 'book', '#a37081');
+
+          // Middle Bookshelf Ledge where launched yarn ball lands
+          this.addStaticPlatform(630, CanvasHeight - 210, 230, 20, 'bookshelf', '#4a2818');
+
+          // Checkpoint Yarn Spool on middle ledge to restore yarn size
+          const spool = new YarnSpool(560, CanvasHeight - 270);
+          yarnSpools.push(spool);
+
+          // High Bookshelf Top Ledge
+          this.addStaticPlatform(830, CanvasHeight - 350, 190, 20, 'bookshelf', '#4a2818');
+
+          // Goal Cat Bed on top shelf
+          catBed = new CatBedGoal(845, CanvasHeight - 380, 66, 36);
+
+        } else if (stageNum === 3) {
+          // --- STAGE 3: NIGHTSTAND CLIMAX ---
+          levelTitle.innerHTML = `<span style="color: var(--accent-warm);">STAGE 3:</span> Nightstand Climax`;
+
+          // Player & Yarn setup
+          pati = new PatiController(80, CanvasHeight - 45);
+          yarn = new YarnBall(160, CanvasHeight - 55);
+
+          // Starting perch
+          this.addStaticPlatform(120, CanvasHeight - 90, 150, 110, 'wood', '#4a3525');
+
+          // Moving book platform 1
+          const book1 = new MovingPlatform(240, 390, CanvasHeight - 150, 95, 20, 1.3, '#1d3557');
+          movingPlatforms.push(book1);
+
+          // Mid perch with Yarn Spool
+          this.addStaticPlatform(450, CanvasHeight - 210, 80, 20, 'wood', '#582f0e');
+          const midSpool = new YarnSpool(450, CanvasHeight - 265);
+          yarnSpools.push(midSpool);
+
+          // Moving book platform 2
+          const book2 = new MovingPlatform(520, 670, CanvasHeight - 275, 95, 20, 1.4, '#8338ec');
+          movingPlatforms.push(book2);
+
+          // Final Lock Switch Ledge
+          this.addStaticPlatform(730, CanvasHeight - 330, 110, 20, 'wood', '#4a3525');
+          const heavySwitch = new PressurePlate(730, CanvasHeight - 343, 60, 20, (active) => {
+            goldGate.setOpen(active);
+          });
+          pressurePlates.push(heavySwitch);
+
+          // Gilded Barrier Gate protecting the master cat bed
+          const goldGate = new MechanicalDoor(795, CanvasHeight - 385, 14, 90, -95, false);
+          doors.push(goldGate);
+
+          // Grand Nightstand Top Surface
+          this.addStaticPlatform(885, CanvasHeight - 330, 140, 20, 'wood', '#582f0e');
+          // Nightstand drawers base
+          this.addStaticPlatform(885, CanvasHeight - 165, 140, 310, 'wood', '#3d200a');
+
+          // Cozy Master Cat Bed
+          catBed = new CatBedGoal(885, CanvasHeight - 360, 68, 38);
+        }
+      }
+
+      static onVictory() {
+        if (isStageComplete) return;
+        isStageComplete = true;
+
+        const overlay = document.getElementById('modal-overlay');
+        const modalTitle = document.getElementById('modal-title');
+        const modalDesc = document.getElementById('modal-desc');
+        const actionBtn = document.getElementById('modal-action-btn');
+
+        overlay.style.display = 'flex';
+
+        if (currentStage < 3) {
+          modalTitle.textContent = `ROOM ${currentStage} CLEAR!`;
+          modalDesc.textContent = 'Pati happily curled up in the warm wicker cat bed! Purr~';
+          actionBtn.textContent = 'NEXT STAGE ▶';
+          actionBtn.onclick = () => {
+            LevelManager.loadStage(currentStage + 1);
+          };
+        } else {
+          modalTitle.textContent = 'ALL ROOMS CLEARED! 🏆';
+          modalDesc.textContent = 'You helped Pati & the Magic Yarn conquer all 3 rooms! Time for a well-deserved cat nap! 💤';
+          actionBtn.textContent = 'PLAY AGAIN 🔄';
+          actionBtn.onclick = () => {
+            LevelManager.loadStage(1);
+          };
+        }
+      }
+
+      static restartLevel() {
+        this.loadStage(currentStage);
+      }
+    }
+
+    // Modal action buttons
+    document.getElementById('modal-retry-btn').addEventListener('click', () => {
+      LevelManager.restartLevel();
+    });
+
+    // Reset button in HUD
+    document.getElementById('reset-btn').addEventListener('click', () => {
+      sound.unlock();
+      LevelManager.restartLevel();
+    });
+
+    // Meow button in HUD
+    document.getElementById('meow-btn').addEventListener('click', () => {
+      sound.unlock();
+      sound.playMeow();
+    });
 
     // Input State
     const keys = {
@@ -1591,7 +1955,12 @@
       if (['ArrowUp', 'KeyW', 'Space'].includes(e.code)) keys.up = true;
       if (['ArrowLeft', 'KeyA'].includes(e.code)) keys.left = true;
       if (['ArrowRight', 'KeyD'].includes(e.code)) keys.right = true;
-      if (e.code === 'KeyR') keys.reset = true;
+      if (e.code === 'KeyR') {
+        LevelManager.restartLevel();
+      }
+      if (e.code === 'KeyE') {
+        sound.playMeow();
+      }
       if (e.code === 'KeyM') {
         const isMuted = sound.toggleMute();
         soundIcon.textContent = isMuted ? '🔇' : '🔊';
@@ -1607,51 +1976,243 @@
       if (['ArrowUp', 'KeyW', 'Space'].includes(e.code)) keys.up = false;
       if (['ArrowLeft', 'KeyA'].includes(e.code)) keys.left = false;
       if (['ArrowRight', 'KeyD'].includes(e.code)) keys.right = false;
-      if (e.code === 'KeyR') keys.reset = false;
     });
 
-    // Render Background Grid / Warm Floor placeholder for Milestone 1
-    function renderBackground() {
-      // Warm living room gradient
-      const bgGrad = ctx.createLinearGradient(0, 0, 0, CanvasHeight);
-      bgGrad.addColorStop(0, '#2e1f38');
-      bgGrad.addColorStop(0.7, '#24172e');
-      bgGrad.addColorStop(1, '#1b1123');
-      ctx.fillStyle = bgGrad;
-      ctx.fillRect(0, 0, CanvasWidth, CanvasHeight);
+    // Render Procedural Background Art tailored to each room theme
+    function renderRoomBackground() {
+      // 1. Wallpaper & Room Ambiance
+      if (currentStage === 1) {
+        // Stage 1: Cozy Living Room Wallpaper (Warm burgundy stripes)
+        ctx.fillStyle = '#2d1b2d';
+        ctx.fillRect(0, 0, CanvasWidth, CanvasHeight);
 
-      // Parquet floor styling on ground
+        ctx.fillStyle = 'rgba(60, 36, 60, 0.4)';
+        for (let x = 0; x < CanvasWidth; x += 32) {
+          ctx.fillRect(x, 0, 16, CanvasHeight - 30);
+        }
+
+        // Baseboard molding
+        ctx.fillStyle = '#3a2016';
+        ctx.fillRect(0, CanvasHeight - 48, CanvasWidth, 18);
+        ctx.fillStyle = '#5c3323';
+        ctx.fillRect(0, CanvasHeight - 48, CanvasWidth, 3);
+
+        // Framed cat wall painting
+        ctx.save();
+        ctx.fillStyle = '#d4af37';
+        ctx.fillRect(160, 80, 88, 70);
+        ctx.fillStyle = '#1c1524';
+        ctx.fillRect(166, 86, 76, 58);
+        ctx.fillStyle = '#ff758f';
+        ctx.beginPath();
+        ctx.arc(204, 115, 16, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // Warm radial floor lamp glow in right corner
+        const lampGlow = ctx.createRadialGradient(850, 220, 20, 850, 220, 240);
+        lampGlow.addColorStop(0, 'rgba(255, 230, 160, 0.22)');
+        lampGlow.addColorStop(1, 'rgba(255, 230, 160, 0)');
+        ctx.fillStyle = lampGlow;
+        ctx.fillRect(550, 0, CanvasWidth - 550, CanvasHeight);
+
+      } else if (currentStage === 2) {
+        // Stage 2: Tall Victorian Bookshelf Background
+        ctx.fillStyle = '#1e141c';
+        ctx.fillRect(0, 0, CanvasWidth, CanvasHeight);
+
+        // Bookshelf vertical wood panels
+        ctx.fillStyle = '#2a1a24';
+        ctx.fillRect(20, 0, CanvasWidth - 40, CanvasHeight - 30);
+
+        // Decorative book rows in background
+        const bookTones = ['#780000', '#003049', '#669bbc', '#283618', '#606c38', '#bc6c25'];
+        for (let rowY of [120, 250, 390]) {
+          // Shelf plank in background
+          ctx.fillStyle = '#3e2417';
+          ctx.fillRect(20, rowY, CanvasWidth - 40, 8);
+
+          // Row of books
+          let bx = 30;
+          let idx = 0;
+          while (bx < CanvasWidth - 50) {
+            const bw = 10 + (idx * 7) % 14;
+            const bh = 44 + (idx * 11) % 24;
+            ctx.fillStyle = bookTones[idx % bookTones.length];
+            ctx.fillRect(bx, rowY - bh, bw, bh);
+            ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+            ctx.strokeRect(bx, rowY - bh, bw, bh);
+            bx += bw + 2;
+            idx++;
+          }
+        }
+
+      } else if (currentStage === 3) {
+        // Stage 3: Midnight Bedside Nightstand
+        const nightSkyGrad = ctx.createLinearGradient(0, 0, 0, CanvasHeight);
+        nightSkyGrad.addColorStop(0, '#0f0c1b');
+        nightSkyGrad.addColorStop(0.7, '#1d172e');
+        nightSkyGrad.addColorStop(1, '#120f1c');
+        ctx.fillStyle = nightSkyGrad;
+        ctx.fillRect(0, 0, CanvasWidth, CanvasHeight);
+
+        // Window overlooking starry night
+        ctx.save();
+        ctx.fillStyle = '#080611';
+        ctx.fillRect(100, 40, 140, 190);
+        ctx.strokeStyle = '#3e2417';
+        ctx.lineWidth = 6;
+        ctx.strokeRect(100, 40, 140, 190);
+        // Window cross
+        ctx.beginPath();
+        ctx.moveTo(170, 40);
+        ctx.lineTo(170, 230);
+        ctx.moveTo(100, 135);
+        ctx.lineTo(240, 135);
+        ctx.stroke();
+
+        // Crescent moon in window
+        ctx.fillStyle = '#ffeaa7';
+        ctx.beginPath();
+        ctx.arc(145, 90, 18, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#080611';
+        ctx.beginPath();
+        ctx.arc(152, 86, 16, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // Nightstand bedside lamp glow
+        const bedLampGlow = ctx.createRadialGradient(880, 160, 10, 880, 160, 260);
+        bedLampGlow.addColorStop(0, 'rgba(255, 214, 112, 0.28)');
+        bedLampGlow.addColorStop(1, 'rgba(255, 214, 112, 0)');
+        ctx.fillStyle = bedLampGlow;
+        ctx.fillRect(600, 0, CanvasWidth - 600, CanvasHeight);
+      }
+
+      // 2. Parquet Floor on Ground (Shared across rooms)
       ctx.fillStyle = '#4a2818';
-      ctx.fillRect(0, CanvasHeight - 40, CanvasWidth, 40);
+      ctx.fillRect(0, CanvasHeight - 30, CanvasWidth, 30);
       ctx.fillStyle = '#6b3a20';
-      ctx.fillRect(0, CanvasHeight - 40, CanvasWidth, 4);
+      ctx.fillRect(0, CanvasHeight - 30, CanvasWidth, 4);
 
-      // Floor plank lines
+      // Floor plank grooves
       ctx.strokeStyle = '#381e12';
       ctx.lineWidth = 2;
-      for (let x = 0; x < CanvasWidth; x += 60) {
+      for (let x = 0; x < CanvasWidth; x += 55) {
         ctx.beginPath();
-        ctx.moveTo(x, CanvasHeight - 40);
+        ctx.moveTo(x, CanvasHeight - 30);
         ctx.lineTo(x, CanvasHeight);
         ctx.stroke();
       }
     }
 
-    // Instantiate Player (Pati)
-    const pati = new PatiController(140, CanvasHeight - 60);
+    // Render Static World Platforms
+    function renderStaticPlatforms() {
+      for (const sp of staticPlatforms) {
+        ctx.save();
+        if (sp.style === 'sofa') {
+          // Velvet Sofa Cushion
+          ctx.fillStyle = sp.color;
+          ctx.beginPath();
+          ctx.roundRect(sp.x - sp.w / 2, sp.y - sp.h / 2, sp.w, sp.h, 12);
+          ctx.fill();
+
+          // Tufted buttons / seam
+          ctx.strokeStyle = '#6b141d';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(sp.x - 40, sp.y, 3, 0, Math.PI * 2);
+          ctx.arc(sp.x + 40, sp.y, 3, 0, Math.PI * 2);
+          ctx.stroke();
+
+        } else if (sp.style === 'bookshelf' || sp.style === 'wood') {
+          // Polished mahogany wood
+          const woodGrad = ctx.createLinearGradient(0, sp.y - sp.h / 2, 0, sp.y + sp.h / 2);
+          woodGrad.addColorStop(0, '#663d27');
+          woodGrad.addColorStop(1, '#3d2010');
+          ctx.fillStyle = woodGrad;
+          ctx.beginPath();
+          ctx.roundRect(sp.x - sp.w / 2, sp.y - sp.h / 2, sp.w, sp.h, 3);
+          ctx.fill();
+
+          // Gold/brass edge trim
+          ctx.strokeStyle = '#855132';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(sp.x - sp.w / 2, sp.y - sp.h / 2, sp.w, sp.h);
+
+        } else if (sp.style === 'book') {
+          // Stacked Book
+          ctx.fillStyle = sp.color;
+          ctx.beginPath();
+          ctx.roundRect(sp.x - sp.w / 2, sp.y - sp.h / 2, sp.w, sp.h, 4);
+          ctx.fill();
+
+          ctx.fillStyle = '#fefae0';
+          ctx.fillRect(sp.x - sp.w / 2 + 3, sp.y - sp.h / 2 + 2, sp.w - 6, sp.h - 4);
+          ctx.strokeStyle = '#d4af37';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(sp.x - sp.w / 2 + 6, sp.y - sp.h / 2 + 2, sp.w - 12, sp.h - 4);
+        }
+        ctx.restore();
+      }
+    }
+
+    // Initialize Game to Stage 1
+    LevelManager.loadStage(1);
 
     // Main Game Loop
+    let lastTime = performance.now();
+    let frameCount = 0;
+    let lastFpsUpdate = performance.now();
+    let currentFps = 60;
+
     function gameLoop(now) {
       const delta = Math.min(now - lastTime, 50);
       lastTime = now;
 
-      // Update Player Controller & Physics
-      pati.update(delta, keys, []);
+      // 1. Update Entities
+      if (pati && !isStageComplete) {
+        pati.update(delta, keys, [yarn.body]);
+      }
+      if (yarn) {
+        yarn.update(delta);
+      }
 
-      // Update Physics Engine with fixed sub-steps
+      // Update Doors
+      doors.forEach(d => d.update(delta));
+
+      // Update Moving Platforms
+      movingPlatforms.forEach(mp => mp.update(delta));
+
+      // Update Pressure Plates
+      pressurePlates.forEach(p => p.update(delta, pati, yarn));
+
+      // Update Springboards
+      springboards.forEach(s => s.update(delta, pati, yarn));
+
+      // Update Yarn Spools
+      yarnSpools.forEach(ys => ys.update(delta, pati, yarn));
+
+      // Update Goal Cat Bed
+      if (catBed) {
+        catBed.update(delta, pati, () => {
+          LevelManager.onVictory();
+        });
+      }
+
+      // 2. Physics Update
       Engine.update(engine, 1000 / 60);
 
-      // FPS tracking
+      // Safe Reset if Pati or Ball falls below bounds
+      if (pati && pati.body.position.y > CanvasHeight + 50) {
+        LevelManager.restartLevel();
+      }
+      if (yarn && yarn.body.position.y > CanvasHeight + 50) {
+        LevelManager.restartLevel();
+      }
+
+      // 3. FPS tracking
       frameCount++;
       if (now - lastFpsUpdate >= 1000) {
         currentFps = frameCount;
@@ -1660,17 +2221,42 @@
         document.getElementById('fps-badge').textContent = `${currentFps} FPS`;
       }
 
-      // Render Scene
+      // 4. Render Scene
       ctx.clearRect(0, 0, CanvasWidth, CanvasHeight);
-      renderBackground();
 
-      // Render Player
-      pati.render(ctx);
+      // Background & Room scenery
+      renderRoomBackground();
+
+      // Static Platforms & Furniture
+      renderStaticPlatforms();
+
+      // Mechanical Doors / Ramps
+      doors.forEach(d => d.render(ctx));
+
+      // Moving Book Platforms
+      movingPlatforms.forEach(mp => mp.render(ctx));
+
+      // Interactive Puzzle Elements
+      pressurePlates.forEach(p => p.render(ctx));
+      springboards.forEach(s => s.render(ctx));
+      yarnSpools.forEach(ys => ys.render(ctx));
+
+      // Goal Cat Bed
+      if (catBed) catBed.render(ctx);
+
+      // Dynamic Yarn Ball (and its unspooled thread trail)
+      if (yarn) yarn.render(ctx);
+
+      // Protagonist Pati
+      if (pati) pati.render(ctx);
+
+      // Ambient Living Room Floating Dust
+      updateAndRenderDust(ctx, delta);
 
       requestAnimationFrame(gameLoop);
     }
 
-    // Start Game
+    // Start Game Loop
     requestAnimationFrame(gameLoop);
   </script>
 </body>
