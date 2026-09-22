@@ -1021,6 +1021,531 @@
       }
     }
 
+    // --- Milestone 5: Interactive Puzzle Objects & Level Entity Framework ---
+    
+    // 1. Pressure Plate: weight-sensitive floor switch
+    class PressurePlate {
+      constructor(x, y, width = 60, requiredMinRadius = 22, onTrigger = null) {
+        this.x = x;
+        this.y = y;
+        this.width = width;
+        this.height = 10;
+        this.requiredMinRadius = requiredMinRadius;
+        this.isPressed = false;
+        this.depression = 0; // 0 (up) to 6 (down)
+        this.onTrigger = onTrigger;
+
+        // Static sensor body
+        this.sensor = Bodies.rectangle(x, y + 2, width, 14, {
+          isStatic: true,
+          isSensor: true,
+          label: 'pressure_plate'
+        });
+        Composite.add(world, this.sensor);
+      }
+
+      update(delta, pati, yarn) {
+        // Calculate weight / size on the plate
+        let totalWeight = 0;
+        let meetsRequirement = false;
+
+        // Check yarn ball
+        const yarnX = yarn.body.position.x;
+        const yarnY = yarn.body.position.y + yarn.currentRadius;
+        if (
+          yarnX >= this.x - this.width / 2 &&
+          yarnX <= this.x + this.width / 2 &&
+          Math.abs(yarnY - this.y) < 14
+        ) {
+          totalWeight += yarn.currentRadius;
+          if (yarn.currentRadius >= this.requiredMinRadius) {
+            meetsRequirement = true;
+          }
+        }
+
+        // Check Pati
+        const patiX = pati.body.position.x;
+        const patiY = pati.body.position.y + pati.height / 2;
+        if (
+          patiX >= this.x - this.width / 2 &&
+          patiX <= this.x + this.width / 2 &&
+          Math.abs(patiY - this.y) < 16
+        ) {
+          totalWeight += 18; // Pati's kitten weight
+          if (this.requiredMinRadius <= 18) {
+            meetsRequirement = true;
+          }
+        }
+
+        // Cat + Ball combo also activates
+        if (totalWeight >= 34) {
+          meetsRequirement = true;
+        }
+
+        const wasPressed = this.isPressed;
+        this.isPressed = meetsRequirement;
+
+        if (this.isPressed && !wasPressed) {
+          sound.playSwitch(true);
+          if (this.onTrigger) this.onTrigger(true);
+        } else if (!this.isPressed && wasPressed) {
+          sound.playSwitch(false);
+          if (this.onTrigger) this.onTrigger(false);
+        }
+
+        // Animate depression
+        const targetDepression = this.isPressed ? 6 : 0;
+        this.depression += (targetDepression - this.depression) * 0.3;
+      }
+
+      render(ctx) {
+        ctx.save();
+        // Plate base frame (wood/brass)
+        ctx.fillStyle = '#3a271d';
+        ctx.fillRect(this.x - this.width / 2 - 4, this.y, this.width + 8, this.height);
+
+        // Depressible pad (warm brass/copper with indicator light)
+        const plateY = this.y + this.depression;
+        const padGrad = ctx.createLinearGradient(0, plateY, 0, plateY + 6);
+        padGrad.addColorStop(0, this.isPressed ? '#52b788' : '#e76f51');
+        padGrad.addColorStop(1, this.isPressed ? '#2d6a4f' : '#b7472a');
+
+        ctx.fillStyle = padGrad;
+        ctx.beginPath();
+        ctx.roundRect(this.x - this.width / 2, plateY, this.width, 6, 2);
+        ctx.fill();
+
+        // Center jewel / glyph
+        ctx.fillStyle = this.isPressed ? '#95d5b2' : '#f4a261';
+        ctx.beginPath();
+        ctx.arc(this.x, plateY + 3, 3, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+      }
+    }
+
+    // 2. Springboard: launches entities vertically with bouncy animation
+    class Springboard {
+      constructor(x, y, width = 50, launchVelocity = -13.8) {
+        this.x = x;
+        this.y = y;
+        this.width = width;
+        this.height = 14;
+        this.launchVelocity = launchVelocity;
+        this.compression = 0; // 0 to 8
+        this.cooldown = 0;
+
+        // Static sensor body
+        this.sensor = Bodies.rectangle(x, y + 2, width, 16, {
+          isStatic: true,
+          isSensor: true,
+          label: 'springboard'
+        });
+        Composite.add(world, this.sensor);
+      }
+
+      update(delta, pati, yarn) {
+        if (this.cooldown > 0) {
+          this.cooldown -= delta;
+        }
+
+        // Check Pati bounce
+        const px = pati.body.position.x;
+        const py = pati.body.position.y + pati.height / 2;
+        if (
+          this.cooldown <= 0 &&
+          px >= this.x - this.width / 2 &&
+          px <= this.x + this.width / 2 &&
+          py >= this.y - 6 &&
+          py <= this.y + 14 &&
+          pati.body.velocity.y >= -1
+        ) {
+          Body.setVelocity(pati.body, { x: pati.body.velocity.x, y: this.launchVelocity });
+          pati.squashX = 0.65;
+          pati.squashY = 1.45;
+          this.compression = 8;
+          this.cooldown = 220;
+          sound.playSpring();
+        }
+
+        // Check Yarn Ball bounce
+        const yx = yarn.body.position.x;
+        const yy = yarn.body.position.y + yarn.currentRadius;
+        if (
+          this.cooldown <= 0 &&
+          yx >= this.x - this.width / 2 &&
+          yx <= this.x + this.width / 2 &&
+          yy >= this.y - 6 &&
+          yy <= this.y + 14 &&
+          yarn.body.velocity.y >= -1
+        ) {
+          Body.setVelocity(yarn.body, { x: yarn.body.velocity.x, y: this.launchVelocity * 1.05 });
+          this.compression = 8;
+          this.cooldown = 220;
+          sound.playSpring();
+        }
+
+        // Elastic return
+        this.compression += (0 - this.compression) * 0.22;
+      }
+
+      render(ctx) {
+        ctx.save();
+        // Base plate
+        ctx.fillStyle = '#2b1b17';
+        ctx.fillRect(this.x - this.width / 2, this.y + 10, this.width, 4);
+
+        // Spring coils (retro zigzag)
+        const padY = this.y + this.compression;
+        ctx.strokeStyle = '#d4af37';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        const springTop = padY + 4;
+        const springBottom = this.y + 10;
+        ctx.moveTo(this.x - 12, springBottom);
+        ctx.lineTo(this.x - 6, (springTop + springBottom) / 2);
+        ctx.lineTo(this.x + 6, (springTop + springBottom) / 2);
+        ctx.lineTo(this.x + 12, springTop);
+        ctx.stroke();
+
+        // Top Launch Board
+        const boardGrad = ctx.createLinearGradient(0, padY, 0, padY + 6);
+        boardGrad.addColorStop(0, '#f39c12');
+        boardGrad.addColorStop(1, '#d35400');
+        ctx.fillStyle = boardGrad;
+        ctx.beginPath();
+        ctx.roundRect(this.x - this.width / 2, padY, this.width, 6, 2);
+        ctx.fill();
+
+        // Arrow indicator
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.moveTo(this.x, padY - 2);
+        ctx.lineTo(this.x - 5, padY + 3);
+        ctx.lineTo(this.x + 5, padY + 3);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.restore();
+      }
+    }
+
+    // 3. Yarn Spool: floating checkpoint pickup that rewinds yarn to full size
+    class YarnSpool {
+      constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.baseY = y;
+        this.radius = 16;
+        this.collected = false;
+        this.respawnTimer = 0;
+        this.rot = 0;
+        this.particles = [];
+
+        this.sensor = Bodies.circle(x, y, 18, {
+          isStatic: true,
+          isSensor: true,
+          label: 'spool'
+        });
+        Composite.add(world, this.sensor);
+      }
+
+      update(delta, pati, yarn) {
+        this.rot += delta * 0.003;
+        this.y = this.baseY + Math.sin(this.rot * 2) * 5;
+
+        // Sparkle particles update
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+          const p = this.particles[i];
+          p.x += p.vx;
+          p.y += p.vy;
+          p.life -= delta * 0.002;
+          if (p.life <= 0) this.particles.splice(i, 1);
+        }
+
+        // Passive ambient sparkle
+        if (Math.random() < 0.1 && !this.collected) {
+          this.particles.push({
+            x: this.x + (Math.random() - 0.5) * 20,
+            y: this.y + (Math.random() - 0.5) * 20,
+            vx: (Math.random() - 0.5) * 0.5,
+            vy: -Math.random() * 0.8 - 0.2,
+            life: 1,
+            color: Math.random() < 0.5 ? '#ff758f' : '#ffeaa7'
+          });
+        }
+
+        if (this.collected) {
+          this.respawnTimer -= delta;
+          if (this.respawnTimer <= 0) {
+            this.collected = false;
+          }
+          return;
+        }
+
+        // Check overlap with Pati or Yarn Ball
+        const distPati = Math.hypot(pati.body.position.x - this.x, pati.body.position.y - this.y);
+        const distYarn = Math.hypot(yarn.body.position.x - this.x, yarn.body.position.y - this.y);
+
+        if (distPati < 32 || distYarn < (yarn.currentRadius + 18)) {
+          if (yarn.currentRadius < yarn.maxRadius - 1) {
+            yarn.restoreFull();
+            this.collected = true;
+            this.respawnTimer = 4000; // Respawns after 4s
+
+            // Burst sparkles
+            for (let i = 0; i < 20; i++) {
+              const ang = (i / 20) * Math.PI * 2;
+              const spd = Math.random() * 2.5 + 1;
+              this.particles.push({
+                x: this.x,
+                y: this.y,
+                vx: Math.cos(ang) * spd,
+                vy: Math.sin(ang) * spd,
+                life: 1,
+                color: '#ff758f'
+              });
+            }
+          }
+        }
+      }
+
+      render(ctx) {
+        // Render particles
+        for (const p of this.particles) {
+          ctx.save();
+          ctx.globalAlpha = Math.max(0, p.life);
+          ctx.fillStyle = p.color;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 2.5 * p.life, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+
+        if (this.collected) return;
+
+        ctx.save();
+        ctx.translate(this.x, this.y);
+
+        // Glow
+        ctx.shadowColor = '#ff4d6d';
+        ctx.shadowBlur = 10;
+
+        // Wooden spool ends
+        ctx.fillStyle = '#8b5a2b';
+        ctx.beginPath();
+        ctx.roundRect(-14, -14, 28, 6, 2);
+        ctx.roundRect(-14, 8, 28, 6, 2);
+        ctx.fill();
+
+        // Pink wound thread core
+        const threadGrad = ctx.createLinearGradient(-10, 0, 10, 0);
+        threadGrad.addColorStop(0, '#ff4d6d');
+        threadGrad.addColorStop(0.5, '#ff8fa3');
+        threadGrad.addColorStop(1, '#ff4d6d');
+        ctx.fillStyle = threadGrad;
+        ctx.beginPath();
+        ctx.roundRect(-10, -8, 20, 16, 2);
+        ctx.fill();
+
+        // Thread lines
+        ctx.strokeStyle = '#c9184a';
+        ctx.lineWidth = 1;
+        for (let ly = -6; ly <= 6; ly += 3) {
+          ctx.beginPath();
+          ctx.moveTo(-10, ly);
+          ctx.lineTo(10, ly);
+          ctx.stroke();
+        }
+
+        ctx.restore();
+      }
+    }
+
+    // 4. Cat Bed Goal: Cozy wicker basket where Pati curls up to win
+    class CatBedGoal {
+      constructor(x, y, width = 64, height = 36) {
+        this.x = x;
+        this.y = y;
+        this.width = width;
+        this.height = height;
+        this.reached = false;
+        this.zzzParticles = [];
+        this.zzzTimer = 0;
+
+        // Static sensor
+        this.sensor = Bodies.rectangle(x, y, width * 0.75, height * 0.6, {
+          isStatic: true,
+          isSensor: true,
+          label: 'goal'
+        });
+        Composite.add(world, this.sensor);
+      }
+
+      update(delta, pati, onVictory) {
+        // Zzz particles
+        for (let i = this.zzzParticles.length - 1; i >= 0; i--) {
+          const z = this.zzzParticles[i];
+          z.x += z.vx;
+          z.y += z.vy;
+          z.scale += delta * 0.0008;
+          z.life -= delta * 0.0012;
+          if (z.life <= 0) this.zzzParticles.splice(i, 1);
+        }
+
+        if (this.reached) {
+          this.zzzTimer += delta;
+          if (this.zzzTimer > 400) {
+            this.zzzTimer = 0;
+            this.zzzParticles.push({
+              x: this.x + 8,
+              y: this.y - 10,
+              vx: 0.35 + Math.random() * 0.2,
+              vy: -0.6 - Math.random() * 0.3,
+              scale: 0.8,
+              life: 1
+            });
+          }
+          return;
+        }
+
+        // Check if Pati stepped into the bed
+        const px = pati.body.position.x;
+        const py = pati.body.position.y;
+        if (
+          Math.abs(px - this.x) < this.width * 0.45 &&
+          Math.abs(py - (this.y - 6)) < 24
+        ) {
+          this.reached = true;
+          sound.playVictory();
+          if (onVictory) onVictory();
+        }
+      }
+
+      render(ctx) {
+        ctx.save();
+
+        // 1. Wicker Basket Base
+        const basketY = this.y - 8;
+        const wickerGrad = ctx.createLinearGradient(this.x - 30, 0, this.x + 30, 0);
+        wickerGrad.addColorStop(0, '#7f4f24');
+        wickerGrad.addColorStop(0.5, '#a68a64');
+        wickerGrad.addColorStop(1, '#582f0e');
+
+        ctx.fillStyle = wickerGrad;
+        ctx.beginPath();
+        ctx.ellipse(this.x, basketY + 8, this.width / 2, 14, 0, 0, Math.PI);
+        ctx.fill();
+
+        // Wicker weave texture lines
+        ctx.strokeStyle = '#582f0e';
+        ctx.lineWidth = 1.5;
+        for (let ox = -20; ox <= 20; ox += 8) {
+          ctx.beginPath();
+          ctx.moveTo(this.x + ox, basketY + 6);
+          ctx.lineTo(this.x + ox * 0.8, basketY + 18);
+          ctx.stroke();
+        }
+
+        // 2. Fluffy Cushion
+        ctx.fillStyle = '#fefae0';
+        ctx.beginPath();
+        ctx.ellipse(this.x, basketY + 4, this.width * 0.42, 10, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Soft pink fleece blanket folded in bed
+        ctx.fillStyle = '#ffccd5';
+        ctx.beginPath();
+        ctx.ellipse(this.x - 6, basketY + 5, 14, 7, -0.2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Little embroidered paw on blanket
+        ctx.fillStyle = '#ff758f';
+        ctx.beginPath();
+        ctx.arc(this.x - 6, basketY + 5, 2.5, 0, Math.PI * 2);
+        ctx.arc(this.x - 9, basketY + 3, 1.2, 0, Math.PI * 2);
+        ctx.arc(this.x - 6, basketY + 1.8, 1.2, 0, Math.PI * 2);
+        ctx.arc(this.x - 3, basketY + 3, 1.2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 3. Sleeping Zzz particles
+        for (const z of this.zzzParticles) {
+          ctx.save();
+          ctx.globalAlpha = Math.max(0, z.life);
+          ctx.fillStyle = '#fefae0';
+          ctx.font = `bold ${Math.round(14 * z.scale)}px 'Courier New', monospace`;
+          ctx.fillText('Z', z.x, z.y);
+          ctx.restore();
+        }
+
+        ctx.restore();
+      }
+    }
+
+    // 5. Sliding Door / Ramp / Barrier mechanism actuated by switches
+    class MechanicalDoor {
+      constructor(x, y, width, height, openOffsetY = -70, isRamp = false) {
+        this.originX = x;
+        this.originY = y;
+        this.width = width;
+        this.height = height;
+        this.openOffsetY = openOffsetY;
+        this.isOpen = false;
+        this.progress = 0; // 0 = closed, 1 = fully open
+        this.isRamp = isRamp;
+
+        this.body = Bodies.rectangle(x, y, width, height, {
+          isStatic: true,
+          label: 'door',
+          friction: 0.8
+        });
+        Composite.add(world, this.body);
+      }
+
+      setOpen(open) {
+        this.isOpen = open;
+      }
+
+      update(delta) {
+        const targetProgress = this.isOpen ? 1 : 0;
+        this.progress += (targetProgress - this.progress) * 0.08;
+
+        const currentY = this.originY + this.openOffsetY * this.progress;
+        Body.setPosition(this.body, { x: this.originX, y: currentY });
+      }
+
+      render(ctx) {
+        const x = this.body.position.x;
+        const y = this.body.position.y;
+
+        ctx.save();
+        if (this.isRamp) {
+          // Wooden ramp style
+          ctx.fillStyle = '#5c3d2e';
+          ctx.fillRect(x - this.width / 2, y - this.height / 2, this.width, this.height);
+          ctx.strokeStyle = '#b85d19';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x - this.width / 2, y - this.height / 2, this.width, this.height);
+        } else {
+          // Brass / Mahogany mechanical barrier
+          const doorGrad = ctx.createLinearGradient(x - this.width / 2, 0, x + this.width / 2, 0);
+          doorGrad.addColorStop(0, '#4a3525');
+          doorGrad.addColorStop(0.5, '#734e32');
+          doorGrad.addColorStop(1, '#3b281c');
+
+          ctx.fillStyle = doorGrad;
+          ctx.fillRect(x - this.width / 2, y - this.height / 2, this.width, this.height);
+
+          // Mechanical rivets / brass bars
+          ctx.strokeStyle = '#d4af37';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x - this.width / 2 + 3, y - this.height / 2 + 3, this.width - 6, this.height - 6);
+        }
+        ctx.restore();
+      }
+    }
+
     // Milestone 1 & 2 Engine setup
     const CanvasWidth = 960;
     const CanvasHeight = 540;
