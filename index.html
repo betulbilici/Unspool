@@ -423,6 +423,402 @@
       soundText.textContent = isMuted ? 'SOUND OFF' : 'SOUND ON';
     });
 
+    // --- Milestone 3: Protagonist "Pati" Character Controller & Procedural Animation ---
+    class PatiController {
+      constructor(startX, startY) {
+        this.width = 36;
+        this.height = 30;
+        this.facing = 1; // 1 = right, -1 = left
+        this.isGrounded = false;
+        this.groundBody = null;
+
+        // Platformer jump feel & coyote time
+        this.coyoteTimer = 0;
+        this.maxCoyoteTime = 130; // ms
+        this.jumpBufferTimer = 0;
+        this.maxJumpBuffer = 120; // ms
+        this.moveSpeed = 4.6;
+        this.jumpForce = -8.2;
+
+        // Animation state
+        this.animTimer = 0;
+        this.walkCycle = 0;
+        this.squashX = 1;
+        this.squashY = 1;
+        this.tailAngle = 0;
+        this.blinkTimer = 2000;
+        this.isBlinking = false;
+        this.wasGroundedLastFrame = false;
+
+        // Create Matter.js physics body
+        this.body = Bodies.rectangle(startX, startY, this.width, this.height, {
+          chamfer: { radius: 10 },
+          friction: 0.1,
+          frictionAir: 0.03,
+          restitution: 0.0,
+          inertia: Infinity, // Prevent rotating
+          label: 'pati'
+        });
+
+        Composite.add(world, this.body);
+      }
+
+      reset(x, y) {
+        Body.setPosition(this.body, { x, y });
+        Body.setVelocity(this.body, { x: 0, y: 0 });
+        this.isGrounded = false;
+        this.coyoteTimer = 0;
+        this.jumpBufferTimer = 0;
+      }
+
+      checkGround(allBodies) {
+        // Raycast-like sensor: check small box beneath Pati's feet
+        const feetY = this.body.position.y + this.height / 2 + 3;
+        const feetLeft = this.body.position.x - this.width / 2 + 4;
+        const feetRight = this.body.position.x + this.width / 2 - 4;
+
+        let grounded = false;
+        let groundObj = null;
+
+        for (const b of allBodies) {
+          if (b === this.body || b.isSensor) continue;
+          // Check AABB bounding box beneath feet
+          if (
+            feetRight > b.bounds.min.x &&
+            feetLeft < b.bounds.max.x &&
+            feetY >= b.bounds.min.y &&
+            feetY <= b.bounds.min.y + 12
+          ) {
+            grounded = true;
+            groundObj = b;
+            break;
+          }
+        }
+
+        return { grounded, groundObj };
+      }
+
+      update(delta, input, dynamicBodies) {
+        this.animTimer += delta;
+
+        // Ground detection
+        const { grounded, groundObj } = this.checkGround(Composite.allBodies(world));
+        this.isGrounded = grounded;
+        this.groundBody = groundObj;
+
+        // Landing squash and sound
+        if (!this.wasGroundedLastFrame && this.isGrounded && Math.abs(this.body.velocity.y) > 2) {
+          this.squashX = 1.25;
+          this.squashY = 0.75;
+        }
+        this.wasGroundedLastFrame = this.isGrounded;
+
+        // Smooth squash/stretch return
+        this.squashX += (1 - this.squashX) * 0.18;
+        this.squashY += (1 - this.squashY) * 0.18;
+
+        // Coyote time update
+        if (this.isGrounded) {
+          this.coyoteTimer = this.maxCoyoteTime;
+        } else {
+          this.coyoteTimer = Math.max(0, this.coyoteTimer - delta);
+        }
+
+        // Jump buffer update
+        if (input.up) {
+          this.jumpBufferTimer = this.maxJumpBuffer;
+        } else {
+          this.jumpBufferTimer = Math.max(0, this.jumpBufferTimer - delta);
+        }
+
+        // Horizontal Movement
+        let targetVx = 0;
+        if (input.left) {
+          targetVx -= this.moveSpeed;
+          this.facing = -1;
+        }
+        if (input.right) {
+          targetVx += this.moveSpeed;
+          this.facing = 1;
+        }
+
+        // Smooth acceleration & responsiveness
+        const currentVx = this.body.velocity.x;
+        const newVx = currentVx + (targetVx - currentVx) * (this.isGrounded ? 0.35 : 0.2);
+        Body.setVelocity(this.body, { x: newVx, y: this.body.velocity.y });
+
+        // Push nearby dynamic bodies (such as yarn ball)
+        if (Math.abs(targetVx) > 0.1) {
+          for (const dBody of dynamicBodies) {
+            if (dBody === this.body) continue;
+            const dist = Vector.magnitude(Vector.sub(dBody.position, this.body.position));
+            const pushRange = (this.width / 2) + (dBody.circleRadius || 20) + 6;
+
+            if (dist < pushRange) {
+              const dx = dBody.position.x - this.body.position.x;
+              // Push in the direction Pati is walking
+              if ((this.facing > 0 && dx > 0) || (this.facing < 0 && dx < 0)) {
+                const pushStrength = 0.003 * Math.min(dBody.mass, 2.5);
+                Body.applyForce(dBody, dBody.position, {
+                  x: this.facing * pushStrength,
+                  y: -0.0005
+                });
+              }
+            }
+          }
+        }
+
+        // Execute Jump (Coyote Time + Jump Buffer)
+        if (this.jumpBufferTimer > 0 && this.coyoteTimer > 0) {
+          Body.setVelocity(this.body, { x: this.body.velocity.x, y: this.jumpForce });
+          this.jumpBufferTimer = 0;
+          this.coyoteTimer = 0;
+          this.isGrounded = false;
+          this.squashX = 0.8;
+          this.squashY = 1.3;
+          sound.playJump();
+
+          // Occasional playful meow on jump!
+          if (Math.random() < 0.18) {
+            setTimeout(() => sound.playMeow(), 80);
+          }
+        }
+
+        // Variable Jump Height: cut velocity if player lets go of jump key mid-rise
+        if (!input.up && this.body.velocity.y < -2) {
+          Body.setVelocity(this.body, { x: this.body.velocity.x, y: this.body.velocity.y * 0.7 });
+        }
+
+        // Walk cycle animation speed
+        if (this.isGrounded && Math.abs(this.body.velocity.x) > 0.3) {
+          this.walkCycle += delta * 0.015 * Math.abs(this.body.velocity.x);
+        } else {
+          this.walkCycle = 0;
+        }
+
+        // Blinking logic
+        this.blinkTimer -= delta;
+        if (this.blinkTimer <= 0) {
+          this.isBlinking = true;
+          if (this.blinkTimer <= -140) {
+            this.isBlinking = false;
+            this.blinkTimer = 2200 + Math.random() * 3000;
+          }
+        }
+      }
+
+      render(ctx) {
+        const x = this.body.position.x;
+        const y = this.body.position.y;
+        const vx = this.body.velocity.x;
+        const vy = this.body.velocity.y;
+
+        ctx.save();
+        ctx.translate(x, y + 2); // align feet
+        ctx.scale(this.facing * this.squashX, this.squashY);
+
+        // Ground shadow
+        ctx.save();
+        ctx.fillStyle = 'rgba(15, 10, 20, 0.35)';
+        ctx.beginPath();
+        ctx.ellipse(0, this.height / 2 - 2, this.width / 2 + 2, 4, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        const time = this.animTimer * 0.005;
+        const breathe = Math.sin(time * 3) * 0.8;
+
+        // 1. Fluffy Animated Tail
+        ctx.save();
+        const tailWag = Math.sin(time * 5) * 0.25 + (Math.abs(vx) > 0.5 ? Math.sin(this.walkCycle * 2) * 0.35 : 0);
+        const tailLift = vy < -1 ? -0.4 : (vy > 1 ? 0.3 : 0);
+        
+        ctx.beginPath();
+        ctx.moveTo(-14, 2);
+        ctx.quadraticCurveTo(-26, -6 + tailWag * 12 + tailLift * 8, -28 + Math.sin(time * 4) * 4, -18 + tailWag * 16);
+        ctx.lineWidth = 7;
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = '#f5f3f7';
+        ctx.stroke();
+
+        // Tail tip fluffy highlight
+        ctx.beginPath();
+        ctx.arc(-28 + Math.sin(time * 4) * 4, -18 + tailWag * 16, 4.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.restore();
+
+        // 2. Rear Paws (Animated trot)
+        const rearPawOffset = Math.sin(this.walkCycle) * 4;
+        ctx.fillStyle = '#eae6ee';
+        ctx.beginPath();
+        ctx.roundRect(-12 + rearPawOffset, 8, 8, 8, 4);
+        ctx.fill();
+
+        // 3. Chubby Body (White British Shorthair)
+        ctx.save();
+        // Body shadow / depth gradient
+        const bodyGrad = ctx.createRadialGradient(2, -2, 4, 0, 0, 22);
+        bodyGrad.addColorStop(0, '#ffffff');
+        bodyGrad.addColorStop(0.75, '#f4f1f7');
+        bodyGrad.addColorStop(1, '#dfd9e6');
+
+        ctx.fillStyle = bodyGrad;
+        ctx.beginPath();
+        // Chubby pear/capsule shape
+        ctx.ellipse(0, 0 + breathe, 18, 14, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Subtle soft fur rim
+        ctx.strokeStyle = '#d0c8d8';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.restore();
+
+        // 4. Front Paws
+        const frontPawOffset = Math.sin(this.walkCycle + Math.PI) * 4;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.roundRect(4 + frontPawOffset, 9, 9, 7, 3);
+        ctx.fill();
+
+        // 5. Cute Head & Chubby Cheeks
+        ctx.save();
+        const headX = 6;
+        const headY = -6 + breathe * 0.5;
+
+        // Ears (Behind head)
+        // Left ear
+        ctx.fillStyle = '#f2eef6';
+        ctx.beginPath();
+        ctx.moveTo(headX - 6, headY - 8);
+        ctx.lineTo(headX - 10, headY - 20);
+        ctx.lineTo(headX - 1, headY - 12);
+        ctx.closePath();
+        ctx.fill();
+        // Inner pink left ear
+        ctx.fillStyle = '#ffaec9';
+        ctx.beginPath();
+        ctx.moveTo(headX - 6, headY - 9);
+        ctx.lineTo(headX - 9, headY - 17);
+        ctx.lineTo(headX - 2, headY - 12);
+        ctx.closePath();
+        ctx.fill();
+
+        // Right ear
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.moveTo(headX + 4, headY - 10);
+        ctx.lineTo(headX + 8, headY - 21);
+        ctx.lineTo(headX + 13, headY - 8);
+        ctx.closePath();
+        ctx.fill();
+        // Inner pink right ear
+        ctx.fillStyle = '#ffaec9';
+        ctx.beginPath();
+        ctx.moveTo(headX + 5, headY - 10);
+        ctx.lineTo(headX + 8, headY - 18);
+        ctx.lineTo(headX + 11, headY - 9);
+        ctx.closePath();
+        ctx.fill();
+
+        // Head base circle
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(headX, headY, 13, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Chubby cheeks pads
+        ctx.beginPath();
+        ctx.arc(headX + 4, headY + 5, 6, 0, Math.PI * 2);
+        ctx.arc(headX - 2, headY + 5, 5.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#f8f6fb';
+        ctx.fill();
+
+        // Rosy blush on cheeks
+        ctx.fillStyle = 'rgba(255, 174, 201, 0.4)';
+        ctx.beginPath();
+        ctx.ellipse(headX + 6, headY + 4, 3.5, 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Whiskers (3 cute delicate lines)
+        ctx.strokeStyle = '#c5bdce';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        // Top whisker
+        ctx.moveTo(headX + 9, headY + 3);
+        ctx.lineTo(headX + 18, headY + 1);
+        // Middle whisker
+        ctx.moveTo(headX + 10, headY + 5);
+        ctx.lineTo(headX + 19, headY + 6);
+        // Bottom whisker
+        ctx.moveTo(headX + 9, headY + 7);
+        ctx.lineTo(headX + 17, headY + 11);
+        ctx.stroke();
+
+        // Big Amber / Golden Eyes
+        if (this.isBlinking) {
+          // Closed happy eye line ^_^
+          ctx.strokeStyle = '#5a4634';
+          ctx.lineWidth = 2;
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.arc(headX + 4, headY - 1, 4, Math.PI * 0.9, Math.PI * 2.1);
+          ctx.stroke();
+        } else {
+          // Eye socket
+          ctx.fillStyle = '#2b1b17';
+          ctx.beginPath();
+          ctx.ellipse(headX + 4, headY - 1, 4.5, 5.5, 0.1, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Amber/Golden Iris
+          const eyeGrad = ctx.createLinearGradient(headX + 2, headY - 5, headX + 6, headY + 3);
+          eyeGrad.addColorStop(0, '#f39c12');
+          eyeGrad.addColorStop(0.5, '#f1c40f');
+          eyeGrad.addColorStop(1, '#e67e22');
+          ctx.fillStyle = eyeGrad;
+          ctx.beginPath();
+          ctx.ellipse(headX + 4, headY - 1, 3.8, 4.8, 0.1, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Kitten Pupil (slight vertical oval)
+          ctx.fillStyle = '#1a0d00';
+          ctx.beginPath();
+          ctx.ellipse(headX + 4.5, headY - 1, 2, 3.8, 0.1, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Shiny Glint Highlights (Big anime catchlight + secondary sparkle)
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(headX + 3.2, headY - 3, 1.8, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(headX + 5.5, headY + 0.8, 1, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Tiny pink nose & mouth
+        ctx.fillStyle = '#ff758f';
+        ctx.beginPath();
+        ctx.moveTo(headX + 9, headY + 3);
+        ctx.lineTo(headX + 11.5, headY + 3);
+        ctx.lineTo(headX + 10.2, headY + 5);
+        ctx.closePath();
+        ctx.fill();
+
+        // Kitten cute inverted mouth
+        ctx.strokeStyle = '#8d7088';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(headX + 8.5, headY + 6, 2, 0, Math.PI * 0.9);
+        ctx.stroke();
+
+        ctx.restore(); // Head
+        ctx.restore(); // Main transform
+      }
+    }
+
     // Milestone 1 & 2 Engine setup
     const CanvasWidth = 960;
     const CanvasHeight = 540;
@@ -514,10 +910,16 @@
       }
     }
 
+    // Instantiate Player (Pati)
+    const pati = new PatiController(140, CanvasHeight - 60);
+
     // Main Game Loop
     function gameLoop(now) {
-      const delta = Math.min(now - lastTime, 100);
+      const delta = Math.min(now - lastTime, 50);
       lastTime = now;
+
+      // Update Player Controller & Physics
+      pati.update(delta, keys, []);
 
       // Update Physics Engine with fixed sub-steps
       Engine.update(engine, 1000 / 60);
@@ -534,6 +936,9 @@
       // Render Scene
       ctx.clearRect(0, 0, CanvasWidth, CanvasHeight);
       renderBackground();
+
+      // Render Player
+      pati.render(ctx);
 
       requestAnimationFrame(gameLoop);
     }
